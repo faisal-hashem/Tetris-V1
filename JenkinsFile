@@ -1,0 +1,74 @@
+pipeline {
+    agent any
+    tools{
+        jdk 'jdk17'
+        nodejs 'node16'
+    }
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+    stages {
+        stage('clean workspace'){
+            steps{
+                cleanWs()
+            }
+        }
+        stage('Checkout from Git'){
+            steps{
+                git branch: 'main', url: 'https://github.com/faisal-hashem/Tetris-V2.git'
+            }
+        }
+        stage("Sonarqube Analysis "){
+            steps{
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=TETRISVersion3.0\
+                    -Dsonar.projectKey=TETRISVersion3.0'''
+                }
+            }
+        }
+        stage("QG"){
+           steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
+                }
+            } 
+        }
+        stage('Install Dependencies') {
+            steps {
+                sh "npm install"
+            }
+        }
+        stage('OWASP FS SCAN') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+        stage('TRIVY FS SCAN') {
+            steps {
+                sh "trivy fs . > trivyfs.txt"
+            }
+        }
+        stage("Docker Build & Push"){
+            steps{
+                script{
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker'){   
+                       sh "docker build -t tetrisv3 ."
+                       sh "docker tag tetrisv3 fhashem423/tetrisv3:latest "
+                       sh "docker push fhashem423/tetrisv3:latest "
+                    }
+                }
+            }
+        }
+        stage("TRIVY IMAGE"){
+            steps{
+                sh "trivy image fhashem423/tetrisv3:latest > trivyimage.txt" 
+            }
+        }
+        stage("Trigger Manifest Pipeline"){
+            steps{
+                build job: 'manifest', wait:true
+            }
+        }
+    }
+}
