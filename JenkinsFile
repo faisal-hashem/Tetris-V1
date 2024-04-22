@@ -6,6 +6,8 @@ pipeline {
     }
     environment {
         SCANNER_HOME=tool 'sonar-scanner'
+        GIT_REPO_NAME = "Tetris-manifest"
+        GIT_USER_NAME = "Aj7Ay"
     }
     stages {
         stage('clean workspace'){
@@ -65,9 +67,22 @@ pipeline {
                 sh "trivy image fhashem423/tetrisv3:latest > trivyimage.txt" 
             }
         }
-        stage("Trigger Manifest Pipeline"){
-            steps{
-                build job: 'manifest', wait:true
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Aj7Ay/Tetris-manifest.git'
+            }
+        }
+        stage('Update Deployment File') {
+            steps {
+                script {
+                    withCredentials([string(credentialsId: 'github', variable: 'GITHUB_TOKEN')]) {
+                       NEW_IMAGE_NAME = "fhashem423/tetrisv3:latest" 
+                       sh "sed -i 's|image: .*|image: $NEW_IMAGE_NAME|' deployment.yml"
+                       sh 'git add deployment.yml'
+                       sh "git commit -m 'Update deployment image to $NEW_IMAGE_NAME'"
+                       sh "git push https://${GITHUB_TOKEN}@github.com/${GIT_USER_NAME}/${GIT_REPO_NAME} HEAD:main"
+                    }
+                }
             }
         }
     }
